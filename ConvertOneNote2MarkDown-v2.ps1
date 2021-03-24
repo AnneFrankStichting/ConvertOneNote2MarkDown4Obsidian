@@ -4,6 +4,8 @@
 [boolean]$global:activateMOCForObsidian = 1
 [boolean]$global:activateSubDir = 0
 [boolean]$global:activateGlobalFileName = 0
+[boolean]$global:activateGlobalTag = 1
+[string]$global:globalTagPrefix = "#OneNote2Markdown4Obsidian"
 
 [int]$global:fileCount = 0
 [int]$global:pageNameRecurrenceCount = 1
@@ -343,6 +345,11 @@ Function ProcessSections ($group, $FilePath) {
             $insert1 = $insert1.ToString("yyyy-MM-dd HH:mm:ss")
             $insert2 = "---" 
             $insert3 = "Related: [[$($parent)]]"
+            
+            if($global:activateGlobalTag -eq 1)
+            {
+                $insert3 = $insert3 + " " + $global:globalTagPrefix + "/" + (Get-Date -Format "yyyyMMdd")
+            }
 
             if($global:activateMOCForObsidian -eq 1)
             {
@@ -735,6 +742,46 @@ if (!$global:activateMOCForObsidian)
 "1: Convert OneNote links to Markdown [[Link]]"
 "2: Keep onenote links"
 [int] $resolveLinks = Read-Host -Prompt "Entry"
+
+if ($global:activateMOCForObsidian)
+{
+    # prompt to activate a global tag 
+    "-----------------------------------------------"
+    "1: Add a global tag to all notes - Default ($($global:globalTagPrefix)/yyyymmdd))"
+    "2: Don't add a global tag"
+    [int] $optActivateGlobalTag = Read-Host -Prompt "Entry"
+
+    if ($optActivateGlobalTag -ne 2)
+    {
+        $global:activateGlobalTag = 1
+
+        # prompt to personalize global tag 
+        "-----------------------------------------------"
+        "1: Use Default: $($global:globalTagPrefix)/yyyymmdd))"
+        "2: Personalize"
+        [int] $optPersonalizeTag = Read-Host -Prompt "Entry"
+
+        if ($optPersonalizeTag -eq 2)
+        {
+            do {
+                # prompt new tag
+                "-----------------------------------------------"
+                "1: Use Default: $($global:globalTagPrefix)/yyyymmdd))"
+                "2: Type new tag"
+                $global:globalTagPrefix = Read-Host -Prompt "Entry"
+
+                "Your new tag is: '$($global:globalTagPrefix)'"
+                "Press 2 to change or any key to confirm."
+                $optPersonalizeTag = Read-Host -Prompt "Entry"
+            } while ($optPersonalizeTag -eq 2)    
+        }
+    }
+    else 
+    {
+        $global:activateGlobalTag = 0
+    }
+}
+
 
 ###################################################################################################################
 # Start
