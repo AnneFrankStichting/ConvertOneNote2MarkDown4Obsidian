@@ -91,7 +91,7 @@ Function ProcessSections ($group, $FilePath) {
     
     if ($global:activateMOCForObsidian -eq 1) #Header for section group moc file
     {
-        [string]$sectionGroupValue = "# $($group.Name)`n`n---"
+        [string]$sectionGroupValue = "# $($group.Name)`n`n- --"
         saveHyperlinkToObject $group ($group.Name | Remove-InvalidFileNameChars)
     }
 
@@ -111,7 +111,7 @@ Function ProcessSections ($group, $FilePath) {
 
         if ($global:activateMOCForObsidian -eq 1) #Header for section moc file
         {
-            [string]$sectionValue = "# $($section.Name)`n`n---"
+            [string]$sectionValue = "# $($section.Name)`n`n- --"
         }
 
         foreach ($page in $section.Page) {
@@ -342,8 +342,8 @@ Function ProcessSections ($group, $FilePath) {
             $orig[0] = "# $($page.name)"
             $insert1 = "$($page.dateTime)"
             $insert1 =[Datetime]::ParseExact($insert1, 'yyyy-MM-ddTHH:mm:ss.fffZ', $null)
-            $insert1 = $insert1.ToString("yyyy-MM-dd HH:mm:ss")
-            $insert2 = "---" 
+            $insert1 = $insert1.ToString("[[yyyy-MM-dd]] HH:mm:ss")
+            $insert2 = "- --" 
             $insert3 = "Related: [[$($parent)]]"
             
             if($global:activateGlobalTag -eq 1)
@@ -360,20 +360,30 @@ Function ProcessSections ($group, $FilePath) {
             }
             
             
-            #Clear double spaces from bullets and nonbreaking spaces from blank lines
-            if ($keepspaces -ne 2 ) {
-                #do nothing
-            }
-            else {
+            #Convert > to - [ ] (Todos)
+            if ($convertTodos -ne 2 )
+            {
                 try {
-                    #TODO - Clear double spaces without crashing tables
-                    ((Get-Content -path "$($fullfilepathwithoutextension).md" -Raw -encoding utf8).Replace(">","").Replace("<","").Replace([char]0x00A0,[char]0x000A).Replace([char]0x000A,[char]0x000A).Replace("`r`n`r`n", "`r`n")) | Set-Content -Path "$($fullfilepathwithoutextension).md" -encoding utf8                  
+                    ((Get-Content -path "$($fullfilepathwithoutextension).md" -Raw -encoding utf8).Replace("`r`n>`r`n","`r`n").Replace("`r`n>","`r`n- [ ]")) | Set-Content -Path "$($fullfilepathwithoutextension).md" -encoding utf8
                 }
                 catch {
                     Write-Host "Error while clearing double spaces from file '$($fullfilepathwithoutextension)' : $($Error[0].ToString())" -ForegroundColor Red
                     $totalerr += "Error while clearing double spaces from file '$($fullfilepathwithoutextension)' : $($Error[0].ToString())`r`n"
                 }    
             }
+
+            #Clear double spaces from bullets and nonbreaking spaces from blank lines
+            if ($keepspaces -ne 2 )
+            {
+                try {
+                    ((Get-Content -path "$($fullfilepathwithoutextension).md" -Raw -encoding utf8).Replace("`r`n`r`n|","`n`n|").Replace("`r`n`r`n","`r`n")) | Set-Content -Path "$($fullfilepathwithoutextension).md" -encoding utf8
+                }
+                catch {
+                    Write-Host "Error while clearing double spaces from file '$($fullfilepathwithoutextension)' : $($Error[0].ToString())" -ForegroundColor Red
+                    $totalerr += "Error while clearing double spaces from file '$($fullfilepathwithoutextension)' : $($Error[0].ToString())`r`n"
+                }    
+            }
+
             
             # rename images to have unique names - NoteName-Image#-HHmmssff.xyz
             $timeStamp = (Get-Date -Format HHmmssff).ToString()
@@ -447,7 +457,7 @@ Function ProcessSections ($group, $FilePath) {
 
         if($global:activateMOCForObsidian -eq 1)
         {
-            $sectionValue = $sectionValue + "`n---"
+            $sectionValue = $sectionValue + "`n- --"
             New-Item -Path "$($FilePath)" -Name "$($sectionFileName).md" -ItemType "file" -Value "$($sectionValue)" -ErrorAction SilentlyContinue
             $sectionGroupValue = $sectionGroupValue + "`n- [[$($sectionFileName)]]"
             saveHyperlinkToObject $section $sectionFileName
@@ -457,7 +467,7 @@ Function ProcessSections ($group, $FilePath) {
 
     if($global:activateMOCForObsidian -eq 1)
     {
-        $sectionGroupValue = $sectionGroupValue + "`n---"
+        $sectionGroupValue = $sectionGroupValue + "`n- --"
         
         return $sectionGroupValue
     }
@@ -722,9 +732,15 @@ else { $converter = "markdown"}
 
 #prompt to clear double spaces between bullets
 "-----------------------------------------------"
-"1: Keep double spaces  - Default"
-"2: Clear double spaces in bullets"
+"1: Clear double spaces in bullets - Default"
+"2: Keep double spaces"
 [int] $keepspaces = Read-Host -Prompt "Entry"
+
+#Convert ">" (Todos) to "- [ ]"
+"-----------------------------------------------"
+"1: Convert '>' to '- [ ]' - Default"
+"2: Keep '>'"
+[int] $convertTodos = Read-Host -Prompt "Entry"
 
  # prompt to clear escape symbols from md files
 [int] $keepescape = 3 # (\ -> /)
@@ -984,7 +1000,7 @@ if (Test-Path -Path $notesdestpath) {
         
         if ($global:activateMOCForObsidian -eq 1)
         {
-            $notebookContent = $notebookContent + "`n---"
+            $notebookContent = $notebookContent + "`n- --"
             New-Item -Path "$($NotebookFilePath)" -Name "$($notebookFileName).md" -ItemType "file" -Value "$($notebookContent)" -ErrorAction SilentlyContinue
         }
     }
