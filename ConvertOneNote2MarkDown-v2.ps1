@@ -17,8 +17,8 @@
 [int]$global:parsedLinksNotMatched = 0
 $global:parsedLinksAmbiguousMatched = 0
 
-$global:PageIdArray = [System.Collections.ArrayList]::new()
-$global:PageValueArray = [System.Collections.ArrayList]::new()
+$global:PageNameHash = [System.Collections.Hashtable]::new()
+$global:PageModifiedDateHash = [System.Collections.Hashtable]::new()
 
 ###################################################################################################################
 # AUX FUNCTIONS
@@ -74,7 +74,17 @@ Function Remove-InvalidFileNameCharsInsertedFiles {
     $newName = $Name.Split([IO.Path]::GetInvalidFileNameChars()) -join '-'
     return ($newName -replace $rePattern,"" -replace "\s","$($global:SpaceChar)")
 }
-  
+
+Function getGlobalTag()
+{
+    if($global:activateGlobalTag -eq 1)
+    {
+        return $global:globalTagPrefix + "/" + (Get-Date -Format "yyyyMMdd")
+    }
+
+    return ""
+}
+
 Function saveHyperlinkToObject($object, $name)
 {
     $link = ""
@@ -82,16 +92,37 @@ Function saveHyperlinkToObject($object, $name)
 
     if ($link -and $name)
     {
-        $global:PageIdArray.add($name)
-        $global:PageValueArray.add($link)
+        $link = [regex]::Match($link, "(?<=page-id={)(.*?)(?=})").Groups[1].Value
+
+        if ($link -ne "" -and !$global:PageIdArray[$link])
+        {
+            $global:PageNameHash.Add($link, $name)
+            $global:PageModifiedDateHash.Add($link, $object.lastModifiedTime)
+        }
     }
 }
-Function ProcessSections ($group, $FilePath) {
+
+Function parseFileNameRepetition($filePath)
+{
+    $path = $filePath[0]
+    $newName = $filePath[1]
+
+    # in case multiple sections with the same name exist in a section, postfix the filename. Run after pages 
+    if ([System.IO.File]::Exists("$($path)\$($newName).md")) {
+        #continue
+        $newName = "$($newName)-$global:pageNameRecurrenceCount"
+        $global:pageNameRecurrenceCount++ 
+    }
+    return $newName;
+}
+
+
+Function ProcessSections ($group, $FilePath, $notebookName) {
     [string]$sectionGroupValue
     
     if ($global:activateMOCForObsidian -eq 1) #Header for section group moc file
     {
-        [string]$sectionGroupValue = "# $($group.Name)`n`n- --"
+        [string]$sectionGroupValue = "# $($group.Name)`n`n- --`nRelated: [[$($notebookName)]] $(getGlobalTag)"
         saveHyperlinkToObject $group ($group.Name | Remove-InvalidFileNameChars)
     }
 
@@ -99,6 +130,10 @@ Function ProcessSections ($group, $FilePath) {
         "--------------"
         "### " + $section.Name
         $sectionFileName = "$($section.Name)" | Remove-InvalidFileNameChars
+
+        # in case multiple sections with the same name exist in a section, postfix the filename. Run after pages 
+        $sectionFileName = parseFileNameRepetition($FilePath, $sectionFileName)
+
         if($global:activateSubDir -eq 1) 
         {
             New-Item -Path "$($FilePath)" -Name "$($sectionFileName)" -ItemType "directory" -ErrorAction SilentlyContinue
@@ -111,7 +146,7 @@ Function ProcessSections ($group, $FilePath) {
 
         if ($global:activateMOCForObsidian -eq 1) #Header for section moc file
         {
-            [string]$sectionValue = "# $($section.Name)`n`n- --"
+            [string]$sectionValue = "# $($section.Name)`n`n- -- `nRelated: [[$($group.Name | Remove-InvalidFileNameChars)]] $(getGlobalTag)"  
         }
 
         foreach ($page in $section.Page) {
@@ -348,7 +383,7 @@ Function ProcessSections ($group, $FilePath) {
             
             if($global:activateGlobalTag -eq 1)
             {
-                $insert3 = $insert3 + " " + $global:globalTagPrefix + "/" + (Get-Date -Format "yyyyMMdd")
+                $insert3 = $insert3 + " " + (getGlobalTag)
             }
 
             if($global:activateMOCForObsidian -eq 1)
@@ -473,22 +508,9 @@ Function ProcessSections ($group, $FilePath) {
     }
 }
 
-Function FindNameById($objId, $idEx)
+Function FindNameById($objId)
 {
-    $i = 0
-    foreach ($element in $PageValueArray)
-    {
-        $thisLinkObjId = [regex]::Match($element, $idEx).Groups[1].Value
-        if($objId)
-        {
-            if ($objId -eq $thisLinkObjId)
-            {
-                return $PageIdArray[$i]
-            }
-        }
-        $i++
-    }
-    return ""
+    return $global:PageNameHash[$objId]
 }
 
 Function MatchLinkToFile ($notesdestpath, $link)
@@ -543,7 +565,7 @@ Function parseLinkForPattern($file, $linkExp, $nameExp)
         #Find usig object ids
         if ($LinkPageId)
         {
-            $linkName = FindNameById $LinkPageId "(?<=page-id={)(.*?)(?=})"
+            $linkName = FindNameById $LinkPageId
         }
 
         if($linkName)
@@ -814,19 +836,31 @@ if (Test-Path -Path $notesdestpath) {
         " "
         $notebook.Name
         $notebookFileName = "$($notebook.Name)" | Remove-InvalidFileNameChars
-        New-Item -Path "$($notesdestpath)\" -Name "$($notebookFileName)" -ItemType "directory" -ErrorAction SilentlyContinue
-        $NotebookFilePath = "$($notesdestpath)\$($notebookFileName)"
+        
+        if ($global:activateSubDir -eq 1)
+        {
+            New-Item -Path "$($notesdestpath)\" -Name "$($notebookFileName)" -ItemType "directory" -ErrorAction SilentlyContinue
+            $NotebookFilePath = "$($notesdestpath)\$($notebookFileName)"
+        }
+        else {
+            $NotebookFilePath = "$($notesdestpath)"
+        }
         $levelsfromroot = 0
        
         New-Item -Path "$($NotebookFilePath)" -Name "docx" -ItemType "directory" -ErrorAction SilentlyContinue
 
         $notebookContent = ""
 
+        if($global:activateGlobalTag -eq 1)
+        {
+            $notebookContent = $notebookContent + (getGlobalTag) + "`n`n"
+        }
+
         "=============="
         #process any sections that are not in a section group
         if ($global:activateMOCForObsidian -eq 1)
-        {
-            $notebookContent = (ProcessSections $notebook $NotebookFilePath)[-1]
+        { 
+            $notebookContent = $notebookContent + (ProcessSections $notebook $NotebookFilePath $notebookFileName)[-1]
         }
         else {
             ProcessSections $notebook $NotebookFilePath
@@ -846,8 +880,10 @@ if (Test-Path -Path $notesdestpath) {
                     $sectiongroupFilePath1 =  "$($notesdestpath)\$($notebookFileName)\$($sectiongroupFileName1)"
                 }
                 else {
-                    $sectiongroupFilePath1 =  "$($notesdestpath)\$($notebookFileName)"
+                    $sectiongroupFilePath1 =  $NotebookFilePath
                 }
+
+                $sectiongroupFileName1 = parseFileNameRepetition($sectiongroupFilePath1, $sectiongroupFileName1)
                 
                 [string]$sectionGroup1Value = ""
 
@@ -874,8 +910,10 @@ if (Test-Path -Path $notesdestpath) {
                             $sectiongroupFilePath2 = "$($notesdestpath)\$($notebookFileName)\$($sectiongroupFileName1)\$($sectiongroupFileName2)"
                         }
                         else {
-                            $sectiongroupFilePath2 = "$($notesdestpath)\$($notebookFileName)"
+                            $sectiongroupFilePath2 = $NotebookFilePath
                         }
+
+                        $sectiongroupFileName2 = parseFileNameRepetition($sectiongroupFilePath2, $sectiongroupFileName2)
                         
                         [string]$sectionGroup2Value = ""
 
@@ -903,8 +941,10 @@ if (Test-Path -Path $notesdestpath) {
                                     $sectiongroupFilePath3 = "$($notesdestpath)\$($notebookFileName)\$($sectiongroupFileName1)\$($sectiongroupFileName2)\$($sectiongroupFileName3)"
                                 }
                                 else {
-                                    $sectiongroupFilePath3 = "$($notesdestpath)\$($notebookFileName)"   
+                                    $sectiongroupFilePath3 = $NotebookFilePath   
                                 }
+
+                                $sectiongroupFileName3 = parseFileNameRepetition($sectiongroupFilePath3, $sectiongroupFileName3)
 
                                 [string]$sectionGroup3Value = ""
                                 
@@ -929,8 +969,10 @@ if (Test-Path -Path $notesdestpath) {
                                             $sectiongroupFilePath4 = "$($notesdestpath)\$($notebookFileName)\$($sectiongroupFileName1)\$($sectiongroupFileName2)\$($sectiongroupFileName3)\$($sectiongroupFileName4)"
                                         }
                                         else {
-                                            $sectiongroupFilePath4 = "$($notesdestpath)\$($notebookFileName)"   
+                                            $sectiongroupFilePath4 = $NotebookFilePath  
                                         }
+
+                                        $sectiongroupFileName4 = parseFileNameRepetition($sectiongroupFilePath4, $sectiongroupFileName4)
 
                                         [string]$sectionGroup4Value = ""
                                 
@@ -956,8 +998,10 @@ if (Test-Path -Path $notesdestpath) {
                                                     $sectiongroupFilePath5 = "$($notesdestpath)\$($notebookFileName)\$($sectiongroupFileName1)\$($sectiongroupFileName2)\$($sectiongroupFileName3)\$($sectiongroupFileName4)\\$($sectiongroupFileName5)"
                                                 }
                                                 else {
-                                                    $sectiongroupFilePath5 = "$($notesdestpath)\$($notebookFileName)"   
+                                                    $sectiongroupFilePath5 = $NotebookFilePath  
                                                 }
+
+                                                $sectiongroupFileName5 = parseFileNameRepetition($sectiongroupFilePath5, $sectiongroupFileName5)
 
                                                 [string]$sectionGroup5Value = ""
                                         
@@ -1003,6 +1047,7 @@ if (Test-Path -Path $notesdestpath) {
             $notebookContent = $notebookContent + "`n- --"
             New-Item -Path "$($NotebookFilePath)" -Name "$($notebookFileName).md" -ItemType "file" -Value "$($notebookContent)" -ErrorAction SilentlyContinue
         }
+        
     }
 
     #Parse links
@@ -1010,6 +1055,11 @@ if (Test-Path -Path $notesdestpath) {
     {
         parseLinks $notesdestpath
     }
+
+    #Export Hashes
+    $global:PageModifiedDateHash | export-clixml "$($NotebookFilePath)/PageModifiedDate.clixml"
+    $global:PageNameHash | export-clixml "$($NotebookFilePath)/PageNameHash.clixml"
+    #TODO $hash=Import-CliXml jeff.clixml
 
     # release OneNote hierarchy
     [System.Runtime.Interopservices.Marshal]::ReleaseComObject($OneNote)
